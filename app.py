@@ -1,9 +1,10 @@
 from flask import Flask, request, render_template_string
 from flask_cors import CORS
+from urllib.parse import unquote
 import hmac
 import hashlib
-import base64
 import json
+import base64
 
 app = Flask(__name__)
 CORS(app)
@@ -12,35 +13,53 @@ CORS(app)
 BOT_TOKEN = "8339914644:AAFmp5_nsV3Cnpmy1rt-IR31CAMG0Ou74G0"  # e.g., "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 ALLOWED_CHANNEL_USERNAME = "grade9_biology"  # Your channel username without @
 
-# Function to validate initData
+# Correct validation function (Telegram algorithm)
 def validate_init_data(init_data_str, bot_token):
     if not init_data_str:
         return False
-    params = dict(param.split('=') for param in init_data_str.split('&'))
+    # Parse params
+    params = {}
+    for param in init_data_str.split('&'):
+        if '=' in param:
+            key, value = param.split('=', 1)
+            params[key] = unquote(value)  # Unquote URL-encoded values
     if 'hash' not in params:
         return False
     
     check_hash = params.pop('hash')
+    # Create data_check_string (sorted, no hash)
     data_check_string = '\n'.join(f'{k}={v}' for k, v in sorted(params.items()))
-    secret_key = hashlib.sha256(bot_token.encode()).digest()
-    calculated_hash = hmac.new(
-        secret_key,
-        data_check_string.encode(),
-        hashlib.sha256
-    ).hexdigest()
+    # Secret key: HMAC-SHA256 of "WebAppData" + bot_token
+    secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
+    # Calculate hash
+    calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
     
     return calculated_hash == check_hash
 
-# Function to get chat info
-def get_chat_info(init_data):
+# Improved chat info extraction
+def get_chat_info(init_data_str):
     try:
-        data = dict(param.split('=') for param in init_data.split('&'))
-        chat_data = json.loads(base64.urlsafe_b64decode(data.get('chat_instance', '').encode() + b'==').decode())
-        return chat_data.get('chat', {}).get('username')
+        params = {}
+        for param in init_data_str.split('&'):
+            if '=' in param:
+                key, value = param.split('=', 1)
+                params[key] = unquote(value)
+        # Parse chat_instance if present
+        chat_instance = params.get('chat_instance', '')
+        if chat_instance:
+            # Decode chat_instance (base64)
+            decoded = base64.urlsafe_b64decode(chat_instance + '==').decode('utf-8')
+            chat_data = json.loads(decoded)
+            chat = chat_data.get('chat', {})
+            return {
+                'type': chat.get('type'),
+                'username': chat.get('username')
+            }
+        return None
     except Exception:
         return None
 
-# Topic data
+# Topic data (full content)
 topics = {
     "ab1": {
         "title": "Unit 1: Introduction to Biology – 1.1 The Meaning and Importance of Biology",
@@ -80,11 +99,10 @@ The scientific method includes steps like observation, hypothesis, experimentati
         "content": """What comes to your mind when you hear the word science?
 "ሳይንስ" የሚለውን ቃል ሲሰሙ ወደ አእምሮዎ የሚመጣው ምንድን ነው?
 Biologists are always curious about why things happen or how things happen. By asking questions and seeking science-based responses known as the scientific method, they come up with new theories to explain new findings.
-ባዮሎጂ ባለሙያዎች (Biologists) ነገሮች ለምን እንደሚሆኑ ወይም እንዴት እንደሚከሰቱ ሁል ጊዜ ጉጉት አላቸው። ሳይንሳዊ ስነ-ዘዴ (the scientific method) በመባል የሚታወቀውን፣ ጥያቄዎችን በመጠየቅ እና በሳይንስ ላይ የተመሠረተ ምላሽ በመፈለግ አዲስ ግኝቶችን (new findings) ለማስረዳት አዲስ ቲዎሪዎችን (theories) ይፈጥራሉ።
+ባዮሎጂ ባለሙዋወች (Biologists) ነገሮች ለምን እንደሚሆኑ ወይም እንዴት እንደሚከሰቱ ሁል ጊዜ ጉጉት አላቸው። ሳይንሳዊ ስነ-ዘዴ (the scientific method) በመባል የሚታወቀውን፣ ጥያቄዎችን በመጠየቅ እና በሳይንስ ላይ የተመሠረተ ምላሽ በመፈለግ አዲስ ግኝቶችን (new findings) ለማስረዳት አዲስ ቲዎሪዎችን (theories) ይፈጥራሉ።
 Branches of biology include botany, zoology, microbiology, and genetics.
 ባዮሎጂ መጨረሻዎች (branches) መንገድ፣ የእንስሳት ምህንድ (zoology)፣ ማይክሮባዮሎጂ (microbiology) እና ጄኔቲክስ (genetics) ያካትታሉ።"""
     }
-    # Add more topics here, e.g., "ab4": { "title": "New Topic", "content": "Content..." }
 }
 
 @app.route('/')
@@ -100,14 +118,23 @@ def index():
             content=f"This content is only available via our official channel: <a href='https://t.me/{ALLOWED_CHANNEL_USERNAME}' style='color: #55acee;'>@{ALLOWED_CHANNEL_USERNAME}</a>"
         )
 
-    # Get chat username
-    chat_username = get_chat_info(init_data)
-    if chat_username != f"@{ALLOWED_CHANNEL_USERNAME}" and chat_username is not None:
-        return render_template_string(
-            html_template,
-            title="Access Denied",
-            content=f"This content is only available via our official channel: <a href='https://t.me/{ALLOWED_CHANNEL_USERNAME}' style='color: #55acee;'>@{ALLOWED_CHANNEL_USERNAME}</a>"
-        )
+    # Get chat info
+    chat_info = get_chat_info(init_data)
+    if chat_info:
+        chat_type = chat_info.get('type')
+        chat_username = chat_info.get('username')
+        # Fallback for channels: Allow if type is "channel" (username often missing)
+        if chat_type == "channel" or (chat_username and chat_username == f"@{ALLOWED_CHANNEL_USERNAME}"):
+            pass  # Authorized
+        else:
+            return render_template_string(
+                html_template,
+                title="Access Denied",
+                content=f"This content is only available via our official channel: <a href='https://t.me/{ALLOWED_CHANNEL_USERNAME}' style='color: #55acee;'>@{ALLOWED_CHANNEL_USERNAME}</a>"
+            )
+    else:
+        # Fallback: Allow if no chat info (for testing)
+        pass
 
     # Serve content
     topic = topics.get(topic_key)
@@ -128,7 +155,7 @@ def index():
             content=f'Topic not found. Please select a valid topic from <a href="https://t.me/{ALLOWED_CHANNEL_USERNAME}" style="color: #55acee;">@{ALLOWED_CHANNEL_USERNAME}</a>.<br>Available topics:<br>{available_topics}'
         )
 
-# HTML template
+# HTML template (updated to send initData to server)
 html_template = """
 <!DOCTYPE html>
 <html lang="en">
@@ -191,15 +218,34 @@ html_template = """
 </head>
 <body>
     <div id="content-wrapper">
-        <h1>{{ title }}</h1>
-        <p>{{ content | safe }}</p>
+        <h1 id="title">Initializing...</h1>
+        <p id="content">Loading...</p>
     </div>
     <script>
         if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.ready();
-            window.Telegram.WebApp.expand();
-            window.Telegram.WebApp.setBackgroundColor('#1e1e2d');
-            window.Telegram.WebApp.setHeaderColor('#1e1e2d');
+            const webApp = Telegram.WebApp;
+            webApp.ready();
+            webApp.expand();
+            webApp.setBackgroundColor('#1e1e2d');
+            webApp.setHeaderColor('#1e1e2d');
+
+            // Send initData to server on load
+            const initData = webApp.initData;
+            const startParam = webApp.initDataUnsafe.start_param || new URLSearchParams(window.location.search).get('startapp');
+            fetch(`?init_data=${encodeURIComponent(initData)}&startapp=${startParam || ''}`, {
+                method: 'GET'
+            }).then(response => response.text()).then(html => {
+                document.open();
+                document.write(html);
+                document.close();
+            }).catch(error => {
+                document.getElementById('title').textContent = 'Error Loading Content';
+                document.getElementById('content').textContent = 'Please try again.';
+                console.error('Error:', error);
+            });
+        } else {
+            document.getElementById('title').textContent = 'Telegram WebApp Not Available';
+            document.getElementById('content').textContent = 'Please open this in Telegram.';
         }
     </script>
 </body>
