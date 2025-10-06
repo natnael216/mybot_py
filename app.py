@@ -15,7 +15,9 @@ ALLOWED_CHANNEL_USERNAME = "grade9_biology"  # Your channel username without @
 
 # Correct validation function (Telegram algorithm)
 def validate_init_data(init_data_str, bot_token):
+    print(f"Validating init_data: {init_data_str}")  # Debug
     if not init_data_str:
+        print("No init_data provided")
         return False
     # Parse params
     params = {}
@@ -24,39 +26,43 @@ def validate_init_data(init_data_str, bot_token):
             key, value = param.split('=', 1)
             params[key] = unquote(value)  # Unquote URL-encoded values
     if 'hash' not in params:
+        print("No hash in params")
         return False
     
     check_hash = params.pop('hash')
+    print(f"Check hash: {check_hash}")
     # Create data_check_string (sorted, no hash)
     data_check_string = '\n'.join(f'{k}={v}' for k, v in sorted(params.items()))
+    print(f"Data check string: {data_check_string}")
     # Secret key: HMAC-SHA256 of "WebAppData" + bot_token
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-    # Calculate hash
     calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    print(f"Calculated hash: {calculated_hash}")
     
     return calculated_hash == check_hash
 
 # Improved chat info extraction
 def get_chat_info(init_data_str):
+    print(f"Extracting chat info from: {init_data_str}")  # Debug
     try:
         params = {}
         for param in init_data_str.split('&'):
             if '=' in param:
                 key, value = param.split('=', 1)
                 params[key] = unquote(value)
-        # Parse chat_instance if present
         chat_instance = params.get('chat_instance', '')
         if chat_instance:
-            # Decode chat_instance (base64)
             decoded = base64.urlsafe_b64decode(chat_instance + '==').decode('utf-8')
             chat_data = json.loads(decoded)
             chat = chat_data.get('chat', {})
+            print(f"Chat data: {chat}")
             return {
                 'type': chat.get('type'),
                 'username': chat.get('username')
             }
         return None
-    except Exception:
+    except Exception as e:
+        print(f"Chat info error: {e}")
         return None
 
 # Topic data (full content)
@@ -110,8 +116,12 @@ def index():
     init_data = request.args.get('init_data', '')
     topic_key = request.args.get('startapp')
 
+    print(f"Received init_data: {init_data}")  # Debug
+    print(f"Received topic_key: {topic_key}")  # Debug
+
     # Validate init_data
     if not validate_init_data(init_data, BOT_TOKEN):
+        print("Validation failed")
         return render_template_string(
             html_template,
             title="Access Denied",
@@ -120,6 +130,7 @@ def index():
 
     # Get chat info
     chat_info = get_chat_info(init_data)
+    print(f"Chat info: {chat_info}")  # Debug
     if chat_info:
         chat_type = chat_info.get('type')
         chat_username = chat_info.get('username')
@@ -127,18 +138,20 @@ def index():
         if chat_type == "channel" or (chat_username and chat_username == f"@{ALLOWED_CHANNEL_USERNAME}"):
             pass  # Authorized
         else:
+            print("Unauthorized chat")
             return render_template_string(
                 html_template,
                 title="Access Denied",
                 content=f"This content is only available via our official channel: <a href='https://t.me/{ALLOWED_CHANNEL_USERNAME}' style='color: #55acee;'>@{ALLOWED_CHANNEL_USERNAME}</a>"
             )
     else:
-        # Fallback: Allow if no chat info (for testing)
+        print("No chat info, allowing for testing")
         pass
 
     # Serve content
     topic = topics.get(topic_key)
     if topic:
+        print(f"Serving topic: {topic['title']}")
         return render_template_string(
             html_template,
             title=topic["title"],
@@ -149,13 +162,14 @@ def index():
             f'<a href="https://t.me/hkfdd_bot?startapp={key}" style="color: #55acee;">{topics[key]["title"]}</a>'
             for key in topics
         )
+        print("Topic not found, showing available topics")
         return render_template_string(
             html_template,
             title="Grade 9 Biology Tutorials",
             content=f'Topic not found. Please select a valid topic from <a href="https://t.me/{ALLOWED_CHANNEL_USERNAME}" style="color: #55acee;">@{ALLOWED_CHANNEL_USERNAME}</a>.<br>Available topics:<br>{available_topics}'
         )
 
-# HTML template (updated to send initData to server)
+# HTML template (unchanged)
 html_template = """
 <!DOCTYPE html>
 <html lang="en">
