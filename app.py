@@ -9,7 +9,7 @@ app = Flask(__name__)
 CORS(app)
 
 # Replace with your bot token from BotFather
-BOT_TOKEN = "YOUR_BOT_TOKEN"  # e.g., "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+BOT_TOKEN = "8339914644:AAFmp5_nsV3Cnpmy1rt-IR31CAMG0Ou74G0"  # e.g., "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
 ALLOWED_CHANNEL_USERNAME = "grade9_biology"  # Your channel username without @
 
 # Function to validate initData
